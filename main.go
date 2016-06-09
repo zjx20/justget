@@ -77,10 +77,12 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	defer bufferPool.Put(buffer)
 	for {
 		n, err := response.Body.Read(buffer)
+		if n > 0 {
+			w.Write(buffer[:n])
+		}
 		if err != nil {
 			break
 		}
-		w.Write(buffer[:n])
 	}
 }
 
