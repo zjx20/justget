@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"flag"
 	"log"
 	"net/http"
@@ -30,10 +31,21 @@ func getFilenameFromPath(path string) string {
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	theUrl := r.URL.Query().Get("url")
+	base64EncodedUrl := r.URL.Query().Get("base64Url")
 	if theUrl == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`Need the "url" query parameter`))
-		return
+		if base64EncodedUrl != "" {
+			decoded, err := base64.StdEncoding.DecodeString(base64EncodedUrl)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`Failed to decode "base64Url" query parameter: ` + err.Error()))
+				return
+			}
+			theUrl = string(decoded)
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`Need the "url" or "base64Url" query parameter`))
+			return
+		}
 	}
 	urlObj, err := url.Parse(theUrl)
 	if err != nil {
