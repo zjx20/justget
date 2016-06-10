@@ -21,6 +21,8 @@ Usage of justget:
     	TLS certificate private key
   -port int
     	Server listen port (default 8123)
+  -tls-port int
+    	Server listen port for TLS (default 8124)
 ```
 
 Thanks to the powerful `http.Client` in Golang, you can easily specify a parent proxy for `justget` via the `HTTP_PROXY` env variable. That makes it possible to extend the functionality of `justget` (e.g. caching) by using other mature HTTP proxy server such as [Polipo](https://www.irif.univ-paris-diderot.fr/~jch/software/polipo/).

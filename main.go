@@ -12,10 +12,11 @@ import (
 )
 
 var (
-	addr = flag.String("addr", "0.0.0.0", "Server listen ip")
-	port = flag.Int("port", 8123, "Server listen port")
-	cert = flag.String("cert", "", "TLS certificate")
-	key  = flag.String("key", "", "TLS certificate private key")
+	addr    = flag.String("addr", "0.0.0.0", "Server listen ip")
+	port    = flag.Int("port", 8123, "Server listen port")
+	tlsPort = flag.Int("tls-port", 8124, "Server listen port for TLS")
+	cert    = flag.String("cert", "", "TLS certificate")
+	key     = flag.String("key", "", "TLS certificate private key")
 
 	httpClient *http.Client
 	bufferPool sync.Pool
@@ -109,13 +110,14 @@ func main() {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handler)
-	server := &http.Server{Addr: *addr + ":" + strconv.Itoa(*port), Handler: mux}
 
 	if *cert != "" && *key != "" {
 		log.Println("Starting TLS HTTP Server")
+		server := &http.Server{Addr: *addr + ":" + strconv.Itoa(*tlsPort), Handler: mux}
 		log.Fatal(server.ListenAndServeTLS(*cert, *key))
 	} else {
 		log.Println("Starting HTTP Server")
+		server := &http.Server{Addr: *addr + ":" + strconv.Itoa(*port), Handler: mux}
 		log.Fatal(server.ListenAndServe())
 	}
 }
