@@ -29,19 +29,20 @@ func getFilenameFromPath(path string) string {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	getUrl := r.URL.Query().Get("url")
-	if getUrl == "" {
+	theUrl := r.URL.Query().Get("url")
+	if theUrl == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`Need the "url" query parameter`))
 		return
 	}
-	urlObj, err := url.Parse(getUrl)
+	urlObj, err := url.Parse(theUrl)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(err.Error()))
 		return
 	}
-	request, err := http.NewRequest(r.Method, getUrl, nil)
+
+	request, err := http.NewRequest(r.Method, theUrl, nil)
 	if r.Body != nil {
 		request.Body = r.Body
 		if r.ContentLength > 0 {
@@ -68,7 +69,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	defer response.Body.Close()
 
 	wHeader := w.Header()
-	wHeader["Content-Disposition"] = []string{"attachment; filename=\"" + getFilenameFromPath(urlObj.Path) + "\""}
+	wHeader["Content-Disposition"] = []string{"inline; filename=\"" + getFilenameFromPath(urlObj.Path) + "\""}
 	for key, value := range response.Header {
 		wHeader[key] = value
 	}
