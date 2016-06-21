@@ -4,12 +4,14 @@ import (
 	"encoding/base64"
 	"errors"
 	"flag"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type (
@@ -116,11 +118,17 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	buffer := bufferPool.Get().([]byte)
 	defer bufferPool.Put(buffer)
 	for {
+		var wErr error = nil
 		n, err := response.Body.Read(buffer)
 		if n > 0 {
-			w.Write(buffer[:n])
+			_, wErr = w.Write(buffer[:n])
 		}
-		if err != nil {
+		if err != nil && err != io.EOF {
+			log.Println("Read error for", request.URL.String(), ":", err.Error())
+			break
+		}
+		if wErr != nil {
+			log.Println("Write error for", request.URL.String(), ":", wErr.Error())
 			break
 		}
 	}
@@ -154,11 +162,19 @@ func main() {
 
 	if *cert != "" && *key != "" {
 		log.Println("Starting TLS HTTP Server")
-		server := &http.Server{Addr: *addr + ":" + strconv.Itoa(*tlsPort), Handler: mux}
+		server := &http.Server{
+			Addr:         *addr + ":" + strconv.Itoa(*tlsPort),
+			Handler:      mux,
+			WriteTimeout: 60 * time.Second,
+		}
 		log.Fatal(server.ListenAndServeTLS(*cert, *key))
 	} else {
 		log.Println("Starting HTTP Server")
-		server := &http.Server{Addr: *addr + ":" + strconv.Itoa(*port), Handler: mux}
+		server := &http.Server{
+			Addr:         *addr + ":" + strconv.Itoa(*port),
+			Handler:      mux,
+			WriteTimeout: 60 * time.Second,
+		}
 		log.Fatal(server.ListenAndServe())
 	}
 }
