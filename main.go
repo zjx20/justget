@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -11,12 +12,19 @@ import (
 	"sync"
 )
 
+type (
+	RedirectedUrlMap map[*http.Request]*url.URL
+)
+
 var (
 	addr    = flag.String("addr", "0.0.0.0", "Server listen ip")
 	port    = flag.Int("port", 8123, "Server listen port")
 	tlsPort = flag.Int("tls-port", 8124, "Server listen port for TLS")
 	cert    = flag.String("cert", "", "TLS certificate")
 	key     = flag.String("key", "", "TLS certificate private key")
+
+	redirectedUrlMapLock sync.Mutex
+	redirectedUrlMap     RedirectedUrlMap
 
 	httpClient *http.Client
 	bufferPool sync.Pool
@@ -73,6 +81,15 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	defer func() {
+		redirectedUrlMapLock.Lock()
+		delete(redirectedUrlMap, request)
+		redirectedUrlMapLock.Unlock()
+		if len(redirectedUrlMap) > 20 {
+			log.Println("Warning: Too many items in |redirectedUrlMap|:", len(redirectedUrlMap), ", are objects leaking?")
+		}
+	}()
+
 	response, err := httpClient.Do(request)
 	if err != nil {
 		w.WriteHeader(500)
@@ -81,8 +98,17 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer response.Body.Close()
 
+	finalUrl := urlObj
+	redirectedUrlMapLock.Lock()
+	redirectedUrl, exists := redirectedUrlMap[request]
+	redirectedUrlMapLock.Unlock()
+	if exists {
+		log.Println("Redirect to:", redirectedUrl.String(), "from:", request.URL.String())
+		finalUrl = redirectedUrl
+	}
+
 	wHeader := w.Header()
-	wHeader["Content-Disposition"] = []string{"inline; filename=\"" + getFilenameFromPath(urlObj.Path) + "\""}
+	wHeader["Content-Disposition"] = []string{"inline; filename=\"" + getFilenameFromPath(finalUrl.Path) + "\""}
 	for key, value := range response.Header {
 		wHeader[key] = value
 	}
@@ -102,12 +128,27 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	flag.Parse()
-	httpClient = &http.Client{}
+
+	redirectedUrlMapLock = sync.Mutex{}
+	redirectedUrlMap = make(RedirectedUrlMap)
+
+	httpClient = &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			redirectedUrlMapLock.Lock()
+			redirectedUrlMap[via[0]] = req.URL
+			redirectedUrlMapLock.Unlock()
+			return nil
+		},
+	}
 	bufferPool = sync.Pool{
 		New: func() interface{} {
 			return make([]byte, 8*1024)
 		},
 	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handler)
 
