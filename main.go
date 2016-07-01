@@ -123,8 +123,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		if n > 0 {
 			_, wErr = w.Write(buffer[:n])
 		}
-		if err != nil && err != io.EOF {
-			log.Println("Read error for", request.URL.String(), ":", err.Error())
+		if err != nil {
+			if err != io.EOF {
+				log.Println("Read error for", request.URL.String(), ":", err.Error())
+			}
 			break
 		}
 		if wErr != nil {
