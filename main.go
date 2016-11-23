@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -115,23 +116,53 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		wHeader[key] = value
 	}
 	w.WriteHeader(response.StatusCode)
-	buffer := bufferPool.Get().([]byte)
-	defer bufferPool.Put(buffer)
-	for {
-		var wErr error = nil
-		n, err := response.Body.Read(buffer)
-		if n > 0 {
-			_, wErr = w.Write(buffer[:n])
-		}
-		if err != nil {
-			if err != io.EOF {
-				log.Println("Read error for", request.URL.String(), ":", err.Error())
+
+	done := make(chan bool)
+	redirectedBytes := int64(0)
+	cancel := int32(0)
+	go func() {
+		buffer := bufferPool.Get().([]byte)
+		defer bufferPool.Put(buffer)
+		for atomic.LoadInt32(&cancel) == 0 {
+			var wErr error = nil
+			n, err := response.Body.Read(buffer)
+			if atomic.LoadInt32(&cancel) > 0 {
+				// The request has been canceled, so don't bother the response writer anymore.
+				break
 			}
-			break
+			if n > 0 {
+				n, wErr = w.Write(buffer[:n])
+				atomic.AddInt64(&redirectedBytes, int64(n))
+			}
+			if err != nil {
+				if err != io.EOF {
+					log.Println("Read error for", request.URL.String(), ":", err.Error())
+				}
+				break
+			}
+			if wErr != nil {
+				log.Println("Write error for", request.URL.String(), ":", wErr.Error())
+				break
+			}
 		}
-		if wErr != nil {
-			log.Println("Write error for", request.URL.String(), ":", wErr.Error())
-			break
+		done <- true
+	}()
+
+FORLOOP:
+	for {
+		const CheckInterval = 30
+		select {
+		case <-done:
+			break FORLOOP
+		case <-time.After(CheckInterval * time.Second):
+			b := atomic.LoadInt64(&redirectedBytes)
+			if b == 0 {
+				log.Printf("Error: redirected 0 bytes in %d seconds", CheckInterval)
+				atomic.StoreInt32(&cancel, 1)
+				break FORLOOP
+			} else {
+				atomic.AddInt64(&redirectedBytes, -b)
+			}
 		}
 	}
 }
@@ -165,17 +196,15 @@ func main() {
 	if *cert != "" && *key != "" {
 		log.Println("Starting TLS HTTP Server")
 		server := &http.Server{
-			Addr:         *addr + ":" + strconv.Itoa(*tlsPort),
-			Handler:      mux,
-			WriteTimeout: 60 * time.Second,
+			Addr:    *addr + ":" + strconv.Itoa(*tlsPort),
+			Handler: mux,
 		}
 		log.Fatal(server.ListenAndServeTLS(*cert, *key))
 	} else {
 		log.Println("Starting HTTP Server")
 		server := &http.Server{
-			Addr:         *addr + ":" + strconv.Itoa(*port),
-			Handler:      mux,
-			WriteTimeout: 60 * time.Second,
+			Addr:    *addr + ":" + strconv.Itoa(*port),
+			Handler: mux,
 		}
 		log.Fatal(server.ListenAndServe())
 	}
